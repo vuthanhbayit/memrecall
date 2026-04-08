@@ -1,13 +1,13 @@
 import Database from 'better-sqlite3'
 import { nanoid } from 'nanoid'
-import type { Memory, CreateMemoryInput, UpdateMemoryInput, MemoryStats, MemoryType } from './types.js'
-import { TYPE_WEIGHTS, MAX_CONTENT_LENGTH, MEMORY_TYPES } from './types.js'
+import type { Memory, CreateMemoryInput, UpdateMemoryInput, MemoryStats, MemoryType, MemoryRow } from './types.js'
+import { TYPE_WEIGHTS, TYPE_HALF_LIFE_DAYS, MAX_CONTENT_LENGTH, MEMORY_TYPES } from './types.js'
 
 function normalizeProject(name: string): string {
   return name.toLowerCase().trim().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
 }
 
-function validateContent(content: string): void {
+export function validateContent(content: string): void {
   if (content.trim().length === 0) throw new Error('Content cannot be empty')
   if (content.length > MAX_CONTENT_LENGTH) throw new Error(`Content exceeds ${MAX_CONTENT_LENGTH} character limit`)
 }
@@ -16,10 +16,28 @@ function tagsToFts(tags: string[] | null | undefined): string {
   return (tags || []).join(' ')
 }
 
-export function rowToMemory(row: any): Memory {
+/** SQL fragment for half-life decay scoring */
+export function halfLifeDecaySQL(col: string = ''): string {
+  return `(1.0 / (1 + (julianday('now') - julianday(${col}created_at)) /
+      CASE ${col}type
+        WHEN 'decision' THEN ${TYPE_HALF_LIFE_DAYS.decision}
+        WHEN 'feedback' THEN ${TYPE_HALF_LIFE_DAYS.feedback}
+        WHEN 'bug' THEN ${TYPE_HALF_LIFE_DAYS.bug}
+        WHEN 'reference' THEN ${TYPE_HALF_LIFE_DAYS.reference}
+        ELSE ${TYPE_HALF_LIFE_DAYS.context}
+      END))`
+}
+
+/** Build MCP error response from caught error */
+export function errorResponse(e: unknown) {
+  const message = e instanceof Error ? e.message : 'Unknown error'
+  return { content: [{ type: 'text' as const, text: JSON.stringify({ error: true, message }) }], isError: true as const }
+}
+
+export function rowToMemory(row: MemoryRow): Memory {
   return {
     id: row.id,
-    type: row.type,
+    type: row.type as MemoryType,
     content: row.content,
     weight: row.weight,
     project: row.project,
@@ -57,14 +75,14 @@ export function createMemory(db: Database.Database, input: CreateMemoryInput): M
 }
 
 export function getMemory(db: Database.Database, id: string): Memory | null {
-  const row = db.prepare('SELECT * FROM memories WHERE id = ?').get(id)
+  const row = db.prepare('SELECT * FROM memories WHERE id = ?').get(id) as MemoryRow | undefined
   return row ? rowToMemory(row) : null
 }
 
 export function updateMemory(db: Database.Database, input: UpdateMemoryInput): Memory {
   validateContent(input.content)
 
-  const old = db.prepare('SELECT rowid, * FROM memories WHERE id = ?').get(input.id) as any
+  const old = db.prepare('SELECT rowid, * FROM memories WHERE id = ?').get(input.id) as (MemoryRow & { rowid: number }) | undefined
   if (!old) throw new Error(`Memory not found: ${input.id}`)
 
   const oldTags = old.tags ? JSON.parse(old.tags) : null
@@ -72,7 +90,6 @@ export function updateMemory(db: Database.Database, input: UpdateMemoryInput): M
   db.transaction(() => {
     db.prepare('UPDATE memories SET content = ? WHERE id = ?').run(input.content, input.id)
 
-    // Sync FTS5: delete old entry, insert new
     db.prepare("INSERT INTO memories_fts (memories_fts, rowid, content, tags) VALUES ('delete', ?, ?, ?)")
       .run(old.rowid, old.content, tagsToFts(oldTags))
     db.prepare('INSERT INTO memories_fts (rowid, content, tags) VALUES (?, ?, ?)')
@@ -82,8 +99,8 @@ export function updateMemory(db: Database.Database, input: UpdateMemoryInput): M
   return getMemory(db, input.id)!
 }
 
-export function expireMemory(db: Database.Database, id: string, reason?: string): void {
-  const old = db.prepare('SELECT rowid, * FROM memories WHERE id = ?').get(id) as any
+export function expireMemory(db: Database.Database, id: string, _reason?: string): void {
+  const old = db.prepare('SELECT rowid, * FROM memories WHERE id = ?').get(id) as (MemoryRow & { rowid: number }) | undefined
   if (!old) throw new Error(`Memory not found: ${id}`)
 
   const oldTags = old.tags ? JSON.parse(old.tags) : null
@@ -91,7 +108,6 @@ export function expireMemory(db: Database.Database, id: string, reason?: string)
   db.transaction(() => {
     db.prepare('UPDATE memories SET valid_until = ? WHERE id = ?').run(new Date().toISOString(), id)
 
-    // Remove from FTS5 (expired memories should not appear in search)
     db.prepare("INSERT INTO memories_fts (memories_fts, rowid, content, tags) VALUES ('delete', ?, ?, ?)")
       .run(old.rowid, old.content, tagsToFts(oldTags))
   })()
@@ -101,21 +117,96 @@ export function getStats(db: Database.Database, project?: string): MemoryStats {
   const where = project ? 'WHERE project = ?' : ''
   const params = project ? [project] : []
 
-  const total = (db.prepare(`SELECT COUNT(*) as count FROM memories ${where}`).get(...params) as any).count
-  const active = (db.prepare(`SELECT COUNT(*) as count FROM memories ${where ? where + ' AND' : 'WHERE'} valid_until IS NULL`).get(...params) as any).count
-  const expired = total - active
+  const rows = db.prepare(`
+    SELECT type, valid_until IS NULL as is_active, COUNT(*) as count
+    FROM memories ${where}
+    GROUP BY type, is_active
+  `).all(...params) as { type: string; is_active: number; count: number }[]
 
+  let total = 0
+  let active = 0
   const byType: Record<string, number> = {}
-  for (const type of MEMORY_TYPES) {
-    const count = (db.prepare(`SELECT COUNT(*) as count FROM memories ${where ? where + ' AND' : 'WHERE'} type = ?`).get(...[...params, type]) as any).count
-    byType[type] = count
+  for (const t of MEMORY_TYPES) byType[t] = 0
+
+  for (const row of rows) {
+    total += row.count
+    if (row.is_active) active += row.count
+    byType[row.type] = (byType[row.type] || 0) + row.count
   }
 
   const byProject: Record<string, number> = {}
-  const projectRows = db.prepare(`SELECT project, COUNT(*) as count FROM memories ${where} GROUP BY project`).all(...params) as any[]
+  const projectRows = db.prepare(`SELECT project, COUNT(*) as count FROM memories ${where} GROUP BY project`).all(...params) as { project: string | null; count: number }[]
   for (const row of projectRows) {
     byProject[row.project || '(global)'] = row.count
   }
 
-  return { total, active, expired, byType: byType as Record<MemoryType, number>, byProject }
+  return { total, active, expired: total - active, byType: byType as Record<MemoryType, number>, byProject }
+}
+
+export function exportMemories(db: Database.Database, project?: string): Memory[] {
+  let sql = 'SELECT * FROM memories'
+  const params: any[] = []
+  if (project) { sql += ' WHERE project = ?'; params.push(project) }
+  sql += ' ORDER BY created_at DESC'
+  return (db.prepare(sql).all(...params) as MemoryRow[]).map(rowToMemory)
+}
+
+function validateImportRow(row: any): string | null {
+  if (!row.id || typeof row.id !== 'string') return 'missing or invalid id'
+  if (!row.content || typeof row.content !== 'string') return 'missing or invalid content'
+  if (!row.type || !MEMORY_TYPES.includes(row.type as MemoryType)) return `invalid type: ${row.type}`
+  if (row.content.trim().length === 0) return 'empty content'
+  if (row.content.length > MAX_CONTENT_LENGTH) return `content exceeds ${MAX_CONTENT_LENGTH} chars`
+  return null
+}
+
+export function importMemories(db: Database.Database, rows: any[]): { imported: number; skipped: number; errors: string[] } {
+  let imported = 0
+  let skipped = 0
+  const errors: string[] = []
+
+  db.transaction(() => {
+    for (const row of rows) {
+      const err = validateImportRow(row)
+      if (err) { errors.push(`Row ${row.id || '?'}: ${err}`); skipped++; continue }
+
+      const exists = db.prepare('SELECT id FROM memories WHERE id = ?').get(row.id)
+      if (exists) { skipped++; continue }
+
+      db.prepare(`
+        INSERT INTO memories (id, type, content, weight, project, tags, valid_from, valid_until, access_count, last_accessed_at, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(row.id, row.type, row.content, row.weight ?? TYPE_WEIGHTS[row.type as MemoryType] ?? 0.5, row.project, row.tags, row.valid_from, row.valid_until, row.access_count || 0, row.last_accessed_at, row.created_at)
+
+      if (!row.valid_until) {
+        const inserted = db.prepare('SELECT rowid FROM memories WHERE id = ?').get(row.id) as any
+        const tagsText = row.tags ? (typeof row.tags === 'string' ? JSON.parse(row.tags) : row.tags).join(' ') : ''
+        db.prepare('INSERT INTO memories_fts (rowid, content, tags) VALUES (?, ?, ?)').run(inserted.rowid, row.content, tagsText)
+      }
+      imported++
+    }
+  })()
+
+  return { imported, skipped, errors }
+}
+
+export function gcExpiredMemories(db: Database.Database, before?: string): { removed: number } {
+  let whereSql = 'WHERE valid_until IS NOT NULL'
+  const params: any[] = []
+  if (before) { whereSql += ' AND valid_until < ?'; params.push(before) }
+
+  const toDelete = db.prepare(`SELECT rowid, content, tags FROM memories ${whereSql}`).all(...params) as any[]
+  if (toDelete.length === 0) return { removed: 0 }
+
+  db.transaction(() => {
+    for (const row of toDelete) {
+      try {
+        const tagsText = row.tags ? JSON.parse(row.tags).join(' ') : ''
+        db.prepare("INSERT INTO memories_fts (memories_fts, rowid, content, tags) VALUES ('delete', ?, ?, ?)").run(row.rowid, row.content, tagsText)
+      } catch { /* FTS entry may already be removed by expireMemory */ }
+    }
+    db.prepare(`DELETE FROM memories ${whereSql}`).run(...params)
+  })()
+
+  return { removed: toDelete.length }
 }

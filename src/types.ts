@@ -59,4 +59,20 @@ export const TYPE_HALF_LIFE_DAYS: Record<MemoryType, number> = {
 
 export const MEMORY_TYPES: MemoryType[] = ['decision', 'feedback', 'bug', 'context', 'reference']
 
+/** Raw database row shape (snake_case columns) */
+export interface MemoryRow {
+  id: string
+  type: string
+  content: string
+  weight: number
+  project: string | null
+  tags: string | null
+  valid_from: string
+  valid_until: string | null
+  access_count: number
+  last_accessed_at: string | null
+  created_at: string
+  rowid?: number
+}
+
 export const MAX_CONTENT_LENGTH = 2000

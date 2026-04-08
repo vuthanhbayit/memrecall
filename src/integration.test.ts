@@ -51,7 +51,7 @@ describe('integration: full workflow', () => {
     }) // global
 
     // 2. New conversation starts — AI loads top memories
-    const top = getTopMemories(db, 'owt', 10)
+    const top = getTopMemories(db, ['owt'], 10)
     expect(top.length).toBe(4) // 3 owt + 1 global
     // Decision should be first (weight 1.0)
     expect(top[0].type).toBe('decision')
@@ -97,7 +97,7 @@ describe('integration: full workflow', () => {
     }
 
     // Now get top memories — "databases" should rank higher despite same weight/age
-    const top = getTopMemories(db, 'test', 2)
+    const top = getTopMemories(db, ['test'], 2)
     expect(top[0].content).toContain('databases')
     expect(top[0].accessCount).toBe(6) // 5 searches + 1 from getTopMemories
   })

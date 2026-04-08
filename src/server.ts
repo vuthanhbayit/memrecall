@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod'
 import { createDatabase } from './db.js'
-import { createMemory, updateMemory, expireMemory, getStats } from './memories.js'
+import { createMemory, updateMemory, expireMemory, getStats, errorResponse } from './memories.js'
 import { searchMemories, getTopMemories } from './search.js'
 import type { MemoryType } from './types.js'
 
@@ -51,8 +51,7 @@ If a similar memory exists, use memrecall_update instead of creating a duplicate
         })
         return { content: [{ type: 'text' as const, text: JSON.stringify({ saved: true, id: memory.id, type: memory.type, project: memory.project }) }] }
       } catch (e: unknown) {
-        const message = e instanceof Error ? e.message : 'Unknown error'
-        return { content: [{ type: 'text' as const, text: JSON.stringify({ error: true, message }) }], isError: true }
+        return errorResponse(e)
       }
     }
   )
@@ -80,7 +79,7 @@ ALSO CALL WHEN:
         const projects = params.projects || (defaultProject ? [defaultProject] : undefined)
         const results = params.query
           ? searchMemories(db, { query: params.query, projects, type: params.type as MemoryType | undefined, limit: params.limit })
-          : getTopMemories(db, projects?.[0] ?? null, params.limit ?? 15)
+          : getTopMemories(db, projects ?? (defaultProject ? [defaultProject] : null), params.limit ?? 15)
 
         const formatted = results.map(m =>
           `[${m.type}]${m.project ? ` (${m.project})` : ''} ${m.content} {id:${m.id}}`
@@ -88,8 +87,7 @@ ALSO CALL WHEN:
 
         return { content: [{ type: 'text' as const, text: formatted || 'No memories found.' }] }
       } catch (e: unknown) {
-        const message = e instanceof Error ? e.message : 'Unknown error'
-        return { content: [{ type: 'text' as const, text: JSON.stringify({ error: true, message }) }], isError: true }
+        return errorResponse(e)
       }
     }
   )
@@ -110,8 +108,7 @@ use memrecall_forget on the old memory, then memrecall_remember for the new one.
         const memory = updateMemory(db, { id: params.id, content: params.content })
         return { content: [{ type: 'text' as const, text: JSON.stringify({ updated: true, id: memory.id }) }] }
       } catch (e: unknown) {
-        const message = e instanceof Error ? e.message : 'Unknown error'
-        return { content: [{ type: 'text' as const, text: JSON.stringify({ error: true, message }) }], isError: true }
+        return errorResponse(e)
       }
     }
   )
@@ -134,8 +131,7 @@ CALL WHEN:
         expireMemory(db, params.id, params.reason)
         return { content: [{ type: 'text' as const, text: JSON.stringify({ forgotten: true, id: params.id }) }] }
       } catch (e: unknown) {
-        const message = e instanceof Error ? e.message : 'Unknown error'
-        return { content: [{ type: 'text' as const, text: JSON.stringify({ error: true, message }) }], isError: true }
+        return errorResponse(e)
       }
     }
   )
@@ -152,8 +148,7 @@ CALL WHEN:
         const stats = getStats(db, params.project)
         return { content: [{ type: 'text' as const, text: JSON.stringify(stats, null, 2) }] }
       } catch (e: unknown) {
-        const message = e instanceof Error ? e.message : 'Unknown error'
-        return { content: [{ type: 'text' as const, text: JSON.stringify({ error: true, message }) }], isError: true }
+        return errorResponse(e)
       }
     }
   )
@@ -163,7 +158,7 @@ CALL WHEN:
     'memrecall://context',
     'Top memories for the current project — decisions, feedback, and critical context',
     async () => {
-      const memories = getTopMemories(db, defaultProject, 15)
+      const memories = getTopMemories(db, defaultProject ? [defaultProject] : null, 15)
       const formatted = memories.map(m =>
         `[${m.type}]${m.project ? ` (${m.project})` : ''} ${m.content}`
       ).join('\n')

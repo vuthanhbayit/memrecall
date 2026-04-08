@@ -66,7 +66,7 @@ describe('search', () => {
 
   describe('getTopMemories (without query)', () => {
     it('returns top memories by score for project', () => {
-      const results = getTopMemories(db, 'owt', 10)
+      const results = getTopMemories(db, ['owt'], 10)
       expect(results.length).toBeGreaterThan(0)
       // Decisions should rank higher than bugs (weight 1.0 vs 0.7)
       const decisionIdx = results.findIndex(r => r.type === 'decision')
@@ -77,7 +77,7 @@ describe('search', () => {
     })
 
     it('includes global memories', () => {
-      const results = getTopMemories(db, 'owt', 10)
+      const results = getTopMemories(db, ['owt'], 10)
       const global = results.find(r => r.project === null)
       expect(global).toBeTruthy()
     })

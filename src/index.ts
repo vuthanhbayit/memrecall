@@ -1,6 +1,6 @@
 import { Command } from 'commander'
 import { createDatabase, closeDatabase, getDefaultDbPath, setVerbose } from './db.js'
-import { getMemory, getStats } from './memories.js'
+import { getMemory, getStats, exportMemories, importMemories, gcExpiredMemories } from './memories.js'
 import { searchMemories, getTopMemories } from './search.js'
 import { startServer } from './server.js'
 import fs from 'fs'
@@ -36,7 +36,7 @@ program
     const db = createDatabase()
     try {
       const projects = opts.projects ? opts.projects.split(',') : opts.project ? [opts.project] : undefined
-      const results = searchMemories(db, { query, projects, type: opts.type, limit: parseInt(opts.limit) })
+      const results = searchMemories(db, { query, projects, type: opts.type, limit: parseInt(opts.limit, 10) })
 
       if (results.length === 0) {
         console.log('No memories found.')
@@ -87,7 +87,7 @@ program
     if (program.opts().verbose) setVerbose(true)
     const db = createDatabase()
     try {
-      const results = getTopMemories(db, opts.project || null, parseInt(opts.limit))
+      const results = getTopMemories(db, opts.project ? [opts.project] : null, parseInt(opts.limit, 10))
       for (const m of results) {
         console.log(`[${m.type}]${m.project ? ` (${m.project})` : ''} ${m.content}`)
         console.log(`  id: ${m.id} | created: ${m.createdAt}`)
@@ -127,19 +127,12 @@ program
     if (program.opts().verbose) setVerbose(true)
     const db = createDatabase()
     try {
-      let sql = 'SELECT * FROM memories'
-      const params: any[] = []
-      if (opts.project) {
-        sql += ' WHERE project = ?'
-        params.push(opts.project)
-      }
-      sql += ' ORDER BY created_at DESC'
-      const rows = db.prepare(sql).all(...params)
-      const json = JSON.stringify(rows, null, 2)
+      const memories = exportMemories(db, opts.project)
+      const json = JSON.stringify(memories, null, 2)
 
       if (opts.output) {
         fs.writeFileSync(opts.output, json)
-        console.error(`Exported ${rows.length} memories to ${opts.output}`)
+        console.error(`Exported ${memories.length} memories to ${opts.output}`)
       } else {
         console.log(json)
       }
@@ -165,27 +158,12 @@ program
         return
       }
 
-      let imported = 0
-      let skipped = 0
-      for (const row of rows) {
-        const exists = db.prepare('SELECT id FROM memories WHERE id = ?').get(row.id)
-        if (exists) { skipped++; continue }
-
-        db.prepare(`
-          INSERT INTO memories (id, type, content, weight, project, tags, valid_from, valid_until, access_count, last_accessed_at, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(row.id, row.type, row.content, row.weight, row.project, row.tags, row.valid_from, row.valid_until, row.access_count || 0, row.last_accessed_at, row.created_at)
-
-        // Sync FTS5 (only for active memories)
-        if (!row.valid_until) {
-          const inserted = db.prepare('SELECT rowid FROM memories WHERE id = ?').get(row.id) as any
-          const tagsText = row.tags ? JSON.parse(row.tags).join(' ') : ''
-          db.prepare('INSERT INTO memories_fts (rowid, content, tags) VALUES (?, ?, ?)').run(inserted.rowid, row.content, tagsText)
-        }
-
-        imported++
+      const result = importMemories(db, rows)
+      console.log(`Imported ${result.imported} memories (${result.skipped} skipped)`)
+      if (result.errors.length > 0) {
+        console.error('Validation errors:')
+        for (const err of result.errors) console.error(`  - ${err}`)
       }
-      console.log(`Imported ${imported} memories (${skipped} skipped — already exist)`)
     } finally {
       closeDatabase(db)
     }
@@ -228,28 +206,20 @@ program
     if (program.opts().verbose) setVerbose(true)
     const db = createDatabase()
     try {
-      let sql = 'SELECT COUNT(*) as count FROM memories WHERE valid_until IS NOT NULL'
-      const params: any[] = []
-      if (opts.before) {
-        sql += ' AND valid_until < ?'
-        params.push(opts.before)
-      }
-      const { count } = db.prepare(sql).get(...params) as any
-
       if (opts.dryRun) {
+        let sql = 'SELECT COUNT(*) as count FROM memories WHERE valid_until IS NOT NULL'
+        const params: any[] = []
+        if (opts.before) { sql += ' AND valid_until < ?'; params.push(opts.before) }
+        const { count } = db.prepare(sql).get(...params) as any
         console.log(`Would remove ${count} expired memories`)
         return
       }
 
-      let deleteSql = 'DELETE FROM memories WHERE valid_until IS NOT NULL'
-      if (opts.before) {
-        deleteSql += ' AND valid_until < ?'
-      }
-      db.prepare(deleteSql).run(...params)
-      console.log(`Removed ${count} expired memories`)
+      const result = gcExpiredMemories(db, opts.before)
+      console.log(`Removed ${result.removed} expired memories`)
     } finally {
       closeDatabase(db)
     }
   })
 
-program.parse()
+program.parseAsync()
