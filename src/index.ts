@@ -196,7 +196,7 @@ program
   .command('backup')
   .description('Create a backup of the database')
   .option('-o, --output <file>', 'Backup file path')
-  .action((opts) => {
+  .action(async (opts) => {
     const dbPath = getDefaultDbPath()
     if (!fs.existsSync(dbPath)) {
       console.error('No database found at', dbPath)
@@ -208,7 +208,7 @@ program
 
     const db = createDatabase()
     try {
-      db.backup(backupPath)
+      await db.backup(backupPath)
       console.log(`Backup created: ${backupPath}`)
     } catch {
       console.error('Backup failed')
