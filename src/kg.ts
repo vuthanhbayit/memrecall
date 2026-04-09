@@ -114,9 +114,10 @@ export function searchTriplesByQuery(
   query: string,
   projects?: string[],
 ): Triple[] {
-  const pattern = `%${query}%`
+  const escaped = query.replace(/[%_\\]/g, c => `\\${c}`)
+  const pattern = `%${escaped}%`
   const conditions: string[] = [
-    '(subject LIKE ? COLLATE NOCASE OR object LIKE ? COLLATE NOCASE)',
+    "(subject LIKE ? ESCAPE '\\' COLLATE NOCASE OR object LIKE ? ESCAPE '\\' COLLATE NOCASE)",
     'valid_until IS NULL',
   ]
   const params: unknown[] = [pattern, pattern]

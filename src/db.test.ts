@@ -51,7 +51,7 @@ describe('database', () => {
     const names = indexes.map((i: any) => i.name)
     expect(names).toContain('idx_project_valid')
     expect(names).toContain('idx_created_at')
-    expect(names).toContain('idx_embedding')
+    expect(names).toContain('idx_has_embedding')
     expect(names).toContain('idx_triples_subject')
     expect(names).toContain('idx_triples_object')
     expect(names).toContain('idx_triples_project')

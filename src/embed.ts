@@ -67,8 +67,8 @@ export async function createOllamaProvider(): Promise<EmbeddingProvider | null> 
 export async function createTransformersProvider(): Promise<EmbeddingProvider | null> {
   let pipeline: any
   try {
-    // Dynamic import — @huggingface/transformers is an optional dependency
-    const mod = await (Function('return import("@huggingface/transformers")')() as Promise<any>)
+    // @ts-ignore — @huggingface/transformers is an optional dependency (not in devDeps)
+    const mod = await import('@huggingface/transformers')
     pipeline = mod.pipeline
   } catch {
     return null

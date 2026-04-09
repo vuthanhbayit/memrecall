@@ -2,6 +2,7 @@ import Database from 'better-sqlite3'
 import { nanoid } from 'nanoid'
 import type { Memory, CreateMemoryInput, UpdateMemoryInput, MemoryStats, MemoryType, MemoryRow } from './types.js'
 import { TYPE_WEIGHTS, TYPE_HALF_LIFE_DAYS, MAX_CONTENT_LENGTH, MEMORY_TYPES } from './types.js'
+import { embedText, embeddingToBuffer } from './embed.js'
 
 function normalizeProject(name: string): string | null {
   const normalized = name.toLowerCase().trim().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
@@ -83,7 +84,6 @@ export async function createMemoryWithEmbedding(db: Database.Database, input: Cr
   const memory = createMemory(db, input)
 
   try {
-    const { embedText, embeddingToBuffer } = await import('./embed.js')
     const embedding = await embedText(input.content)
     if (embedding) {
       db.prepare('UPDATE memories SET embedding = ? WHERE id = ?')

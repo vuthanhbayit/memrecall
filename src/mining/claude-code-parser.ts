@@ -4,16 +4,22 @@ import path from 'path'
 import readline from 'readline'
 import type { Conversation, ConversationParser, Message } from './types.js'
 
+const MAX_DEPTH = 5
+
 /**
  * Recursively find all .jsonl files under a directory.
+ * Skips symlinks and limits recursion depth to prevent runaway traversal.
  */
-async function findJsonlFiles(dir: string): Promise<string[]> {
+async function findJsonlFiles(dir: string, depth: number = 0): Promise<string[]> {
+  if (depth > MAX_DEPTH) return []
+
   const results: string[] = []
   const entries = await fsp.readdir(dir, { withFileTypes: true })
   for (const entry of entries) {
+    if (entry.isSymbolicLink()) continue
     const fullPath = path.join(dir, entry.name)
     if (entry.isDirectory()) {
-      const nested = await findJsonlFiles(fullPath)
+      const nested = await findJsonlFiles(fullPath, depth + 1)
       results.push(...nested)
     } else if (entry.isFile() && entry.name.endsWith('.jsonl')) {
       results.push(fullPath)

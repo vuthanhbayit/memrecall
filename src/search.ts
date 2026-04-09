@@ -44,7 +44,7 @@ function ftsSearch(
     WHERE memories_fts MATCH ?
       AND m.valid_until IS NULL
   `
-  const params: any[] = [sanitizedQuery]
+  const params: unknown[] = [sanitizedQuery]
 
   if (projects && projects.length > 0) {
     const placeholders = projects.map(() => '?').join(', ')
@@ -89,8 +89,12 @@ async function vectorSearch(db: Database.Database, query: string, options: {
   const queryEmbedding = await embedText(query)
   if (!queryEmbedding) return []
 
+  // Cap candidates to avoid loading entire DB into memory.
+  // At our scale (<100k), this is sufficient. Use sqlite-vec for larger datasets.
+  const MAX_CANDIDATES = 1000
+
   let sql = 'SELECT * FROM memories WHERE valid_until IS NULL AND embedding IS NOT NULL'
-  const params: any[] = []
+  const params: unknown[] = []
 
   if (options.projects?.length) {
     const placeholders = options.projects.map(() => '?').join(', ')
@@ -101,6 +105,8 @@ async function vectorSearch(db: Database.Database, query: string, options: {
     sql += ' AND type = ?'
     params.push(options.type)
   }
+
+  sql += ` ORDER BY created_at DESC LIMIT ${MAX_CANDIDATES}`
 
   const rows = db.prepare(sql).all(...params) as MemoryRow[]
 
@@ -192,7 +198,7 @@ export function getTopMemories(db: Database.Database, projects: string[] | null,
     FROM memories
     WHERE valid_until IS NULL
   `
-  const params: any[] = []
+  const params: unknown[] = []
 
   if (projects && projects.length > 0) {
     const placeholders = projects.map(() => '?').join(', ')
