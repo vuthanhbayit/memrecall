@@ -91,25 +91,51 @@ function extractRaw(conversation: Conversation): MinedMemory[] {
 }
 
 /**
+ * Extract surrounding context around a match position in the original text.
+ * Expands to sentence boundaries, targeting 150-500 chars.
+ */
+function extractWithContext(original: string, matchStart: number, matchEnd: number): string {
+  // Expand backwards to find sentence start (. ! ? or start of text)
+  let start = matchStart
+  const minStart = Math.max(0, matchStart - 300)
+  while (start > minStart && !/[.!?\n]/.test(original[start - 1])) {
+    start--
+  }
+
+  // Expand forwards to find sentence end
+  let end = matchEnd
+  const maxEnd = Math.min(original.length, matchEnd + 300)
+  while (end < maxEnd && !/[.!?\n]/.test(original[end])) {
+    end++
+  }
+  // Include the punctuation
+  if (end < original.length && /[.!?]/.test(original[end])) end++
+
+  let content = original.slice(start, end).trim()
+
+  // Cap at 500 chars
+  if (content.length > 500) {
+    content = content.slice(0, 497) + '...'
+  }
+
+  return content
+}
+
+/**
  * Collect matches from a set of regex patterns against text.
- * Returns the matched substrings from the ORIGINAL text (not normalized).
+ * Returns matches with surrounding context from the ORIGINAL text.
  */
 function collectMatches(text: string, patterns: RegExp[], offset?: { normalized: string; original: string }): string[] {
   const results: string[] = []
   const matchText = offset ? offset.normalized : text
+  const original = offset ? offset.original : text
+
   for (const pattern of patterns) {
     for (const match of matchText.matchAll(pattern)) {
-      if (offset) {
-        // For Vietnamese patterns matched on normalized text,
-        // extract the same position from original text to preserve diacritics
-        const start = match.index!
-        const end = start + match[0].length
-        const original = offset.original.slice(start, end).trim()
-        if (original.length > 0) results.push(original)
-      } else {
-        const content = match[0].trim()
-        if (content.length > 0) results.push(content)
-      }
+      const start = match.index!
+      const end = start + match[0].length
+      const content = extractWithContext(original, start, end)
+      if (content.length > 0) results.push(content)
     }
   }
   return results

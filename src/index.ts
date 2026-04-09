@@ -13,7 +13,7 @@ const program = new Command()
 program
   .name('memrecall')
   .description('Long-term memory for AI assistants')
-  .version('0.2.1')
+  .version('0.2.2')
   .option('--verbose', 'Enable verbose logging')
 
 // memrecall serve

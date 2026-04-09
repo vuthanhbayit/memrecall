@@ -14,7 +14,7 @@ export async function startServer() {
 
   const server = new McpServer({
     name: 'memrecall',
-    version: '0.2.1',
+    version: '0.2.2',
   })
 
   // Tool: memrecall_remember
@@ -35,11 +35,17 @@ DO NOT CALL WHEN:
 - Performing routine operations with no new insights
 - Information already saved (search first with memrecall_recall)
 
+CONTENT QUALITY — write memories that your future self can understand WITHOUT context:
+- BAD:  "decided to use Nitro" (18 chars — useless without context)
+- GOOD: "Decided to use Nitro instead of Express for the API server. Reasons: native Nuxt integration, auto-imports, zero-config TypeScript. Trade-off: less middleware ecosystem but acceptable." (180 chars — self-contained)
+- INCLUDE: what was decided/learned, WHY (reasoning), what alternatives were rejected, any trade-offs or constraints
+- TARGET: 150-500 characters per memory. Short enough to scan, long enough to be useful.
+
 BEFORE SAVING: Search existing memories for similar content with memrecall_recall.
 If a similar memory exists, use memrecall_update instead of creating a duplicate.`,
     {
       type: z.enum(['decision', 'feedback', 'bug', 'context', 'reference']).describe('Memory type'),
-      content: z.string().describe('The memory content. Be specific and include reasoning.'),
+      content: z.string().describe('Self-contained memory. Include: WHAT + WHY + alternatives/trade-offs. Target 150-500 chars.'),
       project: z.string().optional().describe('Project identifier (lowercase slug). Omit for global memories.'),
       tags: z.array(z.string()).optional().describe('Optional categorization tags.'),
     },
