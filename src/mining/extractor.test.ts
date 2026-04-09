@@ -116,14 +116,14 @@ describe('extractor', () => {
 
     it('detects Vietnamese patterns with diacritics', () => {
       const convDecision = makeConversation([
-        { role: 'user', content: 'Em quyết định dùng Drizzle ORM thay vì Prisma cho project mới.' },
+        { role: 'user', content: 'Chốt rồi dùng Drizzle ORM thay vì Prisma cho project mới nhé.' },
       ])
       const decisions = extractMemories(convDecision, true)
       expect(decisions.length).toBeGreaterThanOrEqual(1)
       expect(decisions.some(r => r.type === 'decision')).toBe(true)
 
       const convFeedback = makeConversation([
-        { role: 'user', content: 'Anh đừng bao giờ dùng CommonJS require trong project này, luôn dùng ES modules.' },
+        { role: 'user', content: 'Đừng bao giờ dùng CommonJS require trong project này.' },
       ])
       const feedbacks = extractMemories(convFeedback, true)
       expect(feedbacks.length).toBeGreaterThanOrEqual(1)
@@ -139,7 +139,7 @@ describe('extractor', () => {
 
     it('detects Vietnamese patterns WITHOUT diacritics', () => {
       const convDecision = makeConversation([
-        { role: 'user', content: 'chot dung Redis cho caching, khong can Memcached nua' },
+        { role: 'user', content: 'chot roi dung Redis cho caching, khong can Memcached nua' },
       ])
       const decisions = extractMemories(convDecision, true)
       expect(decisions.length).toBeGreaterThanOrEqual(1)
@@ -158,6 +158,20 @@ describe('extractor', () => {
       const bugs = extractMemories(convBug, true)
       expect(bugs.length).toBeGreaterThanOrEqual(1)
       expect(bugs.some(r => r.type === 'bug')).toBe(true)
+    })
+
+    it('does NOT false-positive on Vietnamese questions or ambiguous "dung"', () => {
+      // "dung" alone should NOT match as feedback (could be "dùng"=use, not "đừng"=don't)
+      const conv1 = makeConversation([
+        { role: 'user', content: 'dung memrecall xem the nao' },
+      ])
+      expect(extractMemories(conv1, true)).toHaveLength(0)
+
+      // Questions should not match as bugs
+      const conv2 = makeConversation([
+        { role: 'user', content: 'bi loi du lieu dung khong?' },
+      ])
+      expect(extractMemories(conv2, true)).toHaveLength(0)
     })
 
     it('detects multiple patterns from different messages', () => {

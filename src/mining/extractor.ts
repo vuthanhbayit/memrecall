@@ -15,27 +15,32 @@ export function removeDiacritics(text: string): string {
 // "chốt dùng X" and "chot dung X" match).
 
 const DECISION_PATTERNS_EN = [
-  /(?:decided|chose|going with|let's use|we'll use|switching to|will use|should use|picked|selected)\s+(.{10,200})/gi,
+  /(?:decided to|chose to|going with|let's use|we'll use|switching to|will use)\s+(.{10,200})/gi,
 ]
 
+// Vietnamese decision patterns — require longer prefixes to avoid "dung" ambiguity
 const DECISION_PATTERNS_VI = [
-  /(?:chot|quyet dinh|dung|chuyen sang|chon|se dung|nen dung|lay|su dung)\s+(.{10,200})/gi,
+  /(?:chot (?:la |roi |dung |chon )|quyet dinh (?:dung |chon |lay )|chuyen sang |se dung |nen dung |da chon )(.{10,200})/gi,
 ]
 
 const FEEDBACK_PATTERNS_EN = [
-  /(?:don't|never|stop|always prefer|always use|do not|avoid|must not|should not|shouldn't)\s+(.{10,200})/gi,
+  /(?:don't ever|never ever|always prefer|always use|must not|should not|shouldn't ever)\s+(.{10,200})/gi,
+  /(?:don't|do not)\s+(?:use|do|add|create|make|put|write|call|import|include|touch)\s+(.{10,200})/gi,
+  /(?:stop|avoid|never)\s+(?:using|doing|adding|creating|making)\s+(.{10,200})/gi,
 ]
 
+// Vietnamese feedback — use multi-word to avoid "dung" (use) vs "dung" (don't)
 const FEEDBACK_PATTERNS_VI = [
-  /(?:dung|khong bao gio|luon luon|luon dung|khong duoc|tranh|phai luon|nen luon|cam|khong nen)\s+(.{10,200})/gi,
+  /(?:dung bao gio|khong bao gio|luon luon phai|khong duoc phep|tuyet doi khong|cam khong duoc|tranh viec)\s+(.{10,200})/gi,
 ]
 
 const BUG_PATTERNS_EN = [
-  /(?:root cause|failed because|the issue was|bug was|caused by|broke because|error was|problem was|crash.{0,5} because)\s+(.{10,200})/gi,
+  /(?:root cause (?:was|is)|failed because|the issue was|bug was|caused by|broke because|error was due to|problem was)\s+(.{10,200})/gi,
 ]
 
+// Vietnamese bug — require "la" or "do" after pattern to confirm it's a statement, not a question
 const BUG_PATTERNS_VI = [
-  /(?:loi vi|nguyen nhan|bi loi|gay ra|van de la|loi do|hu vi|hong vi|sap vi)\s+(.{10,200})/gi,
+  /(?:nguyen nhan (?:la|do)|loi (?:la do|la vi|vi|do)|van de (?:la do|la vi)|bi loi (?:la |do |vi ))\s*(.{10,200})/gi,
 ]
 
 interface PatternGroup {
