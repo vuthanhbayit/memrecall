@@ -14,7 +14,7 @@ export async function startServer() {
 
   const server = new McpServer({
     name: 'memrecall',
-    version: '0.2.0',
+    version: '0.2.1',
   })
 
   // Tool: memrecall_remember
