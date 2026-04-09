@@ -1,17 +1,18 @@
 import type { Conversation, MinedMemory } from './types.js'
 
+// Global flag for matchAll — finds ALL occurrences per message, not just the first
 const DECISION_PATTERNS = [
-  /(?:decided|chose|going with|let's use|we'll use|switching to)\s+(.{10,200})/i,
-  /(?:chốt|quyết định|dùng|chuyển sang)\s+(.{10,200})/i,
+  /(?:decided|chose|going with|let's use|we'll use|switching to)\s+(.{10,200})/gi,
+  /(?:chốt|quyết định|dùng|chuyển sang)\s+(.{10,200})/gi,
 ]
 
 const FEEDBACK_PATTERNS = [
-  /(?:don't|never|stop|always prefer|always use)\s+(.{10,200})/i,
-  /(?:đừng|không bao giờ|luôn luôn|luôn dùng)\s+(.{10,200})/i,
+  /(?:don't|never|stop|always prefer|always use)\s+(.{10,200})/gi,
+  /(?:đừng|không bao giờ|luôn luôn|luôn dùng)\s+(.{10,200})/gi,
 ]
 
 const BUG_PATTERNS = [
-  /(?:root cause|failed because|the issue was|bug was|lỗi vì|nguyên nhân)\s+(.{10,200})/i,
+  /(?:root cause|failed because|the issue was|bug was|lỗi vì|nguyên nhân)\s+(.{10,200})/gi,
 ]
 
 interface PatternGroup {
@@ -71,9 +72,7 @@ function extractSmart(conversation: Conversation): MinedMemory[] {
   for (const message of conversation.messages) {
     for (const group of PATTERN_GROUPS) {
       for (const pattern of group.patterns) {
-        const match = pattern.exec(message.content)
-        if (match) {
-          // Use the full match (match[0]) for context, trimmed
+        for (const match of message.content.matchAll(pattern)) {
           const content = match[0].trim()
           if (content.length > 0) {
             memories.push({

@@ -46,6 +46,7 @@ export async function createOllamaProvider(): Promise<EmbeddingProvider | null> 
     return new Float32Array(data.embedding)
   }
 
+  // Sequential — Ollama /api/embeddings only accepts single input per request
   async function embedBatch(texts: string[]): Promise<Float32Array[]> {
     const results: Float32Array[] = []
     for (const text of texts) {
@@ -98,6 +99,7 @@ export async function createTransformersProvider(): Promise<EmbeddingProvider | 
     return new Float32Array(output.data)
   }
 
+  // Sequential — transformers.js pipeline is single-threaded ONNX inference
   async function embedBatch(texts: string[]): Promise<Float32Array[]> {
     const results: Float32Array[] = []
     for (const text of texts) {
