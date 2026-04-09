@@ -4,7 +4,7 @@
   "description": "MCP server providing long-term memory for AI assistants",
   "type": "module",
   "bin": {
-    "memrecall": "./bin/memrecall.js"
+    "memrecall": "bin/memrecall.js"
   },
   "main": "./dist/index.js",
   "scripts": {
