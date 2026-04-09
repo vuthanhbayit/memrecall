@@ -27,6 +27,20 @@ claude mcp add memrecall -- memrecall serve
 # Done. Your AI remembers from now on.
 ```
 
+> **Want smarter search?** Add semantic embeddings — search by *meaning*, not just keywords:
+>
+> ```bash
+> # Option A: Ollama (fast, GPU-accelerated)
+> ollama pull all-minilm
+>
+> # Option B: Local model (no server needed)
+> npm install -g @huggingface/transformers
+> ```
+>
+> Then backfill existing memories: `memrecall embed`
+>
+> Without either, memrecall still works — just with keyword search only.
+
 ## Why memrecall?
 
 | Problem | memrecall |
@@ -55,18 +69,64 @@ claude mcp add memrecall -- memrecall serve
 
 ## Install
 
+### Step 1: Install memrecall
+
 ```bash
 npm install -g memrecall
 ```
 
-### Optional: Semantic Search
+### Step 2: Enable Semantic Search (recommended)
 
-Embeddings work automatically if either is available:
+Without embeddings, memrecall uses keyword search — "database decision" won't find "Chose PostgreSQL for persistence". With embeddings, it understands *meaning*.
 
-1. **Ollama** (recommended for speed) — `ollama pull all-minilm` + have Ollama running
-2. **@huggingface/transformers** (no server needed) — `npm install -g @huggingface/transformers`
+**Pick one:**
 
-Neither available? memrecall falls back to FTS5 keyword search. No errors, no data loss — just slightly less magic.
+<table>
+<tr>
+<td width="50%">
+
+**Option A: Ollama** ⚡ fastest
+
+```bash
+# Install Ollama: https://ollama.com
+ollama pull all-minilm
+# Keep Ollama running in background
+```
+
+Uses GPU if available. ~5ms per embedding.
+
+</td>
+<td width="50%">
+
+**Option B: transformers.js** 📦 no server
+
+```bash
+npm install -g @huggingface/transformers
+```
+
+Runs in-process via ONNX. Downloads model (~23MB) on first use. ~50ms per embedding.
+
+</td>
+</tr>
+</table>
+
+Verify your setup:
+
+```bash
+memrecall embed --status
+# Provider: ollama  ← or "transformers" or "none"
+```
+
+### Step 3: Backfill embeddings
+
+If you already have memories saved, generate embeddings for them:
+
+```bash
+memrecall embed            # embed all memories without embeddings
+memrecall embed --status   # check coverage: "42/42 (100%)"
+```
+
+> **No embedding provider?** memrecall works fine with FTS5 keyword search only. You can add embeddings later — run `memrecall embed` anytime and existing memories get upgraded.
 
 ## Setup
 
