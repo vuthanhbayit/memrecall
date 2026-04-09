@@ -23,7 +23,7 @@ describe('integration: full workflow', () => {
     fs.rmSync(TEST_DB_DIR, { recursive: true, force: true })
   })
 
-  it('simulates real usage: remember → search → update → forget → search', () => {
+  it('simulates real usage: remember → search → update → forget → search', async () => {
     // 1. AI auto-remembers during conversations
     const m1 = createMemory(db, {
       type: 'decision',
@@ -57,7 +57,7 @@ describe('integration: full workflow', () => {
     expect(top[0].type).toBe('decision')
 
     // 3. AI searches for specific topic
-    const inventoryResults = searchMemories(db, { query: 'inventory', projects: ['owt'] })
+    const inventoryResults = await searchMemories(db, { query: 'inventory', projects: ['owt'] })
     expect(inventoryResults.length).toBeGreaterThan(0)
     expect(inventoryResults[0].content).toContain('per-variant')
 
@@ -71,7 +71,7 @@ describe('integration: full workflow', () => {
     })
 
     // 5. Search should only find new decision
-    const afterChange = searchMemories(db, { query: 'inventory tracking', projects: ['owt'] })
+    const afterChange = await searchMemories(db, { query: 'inventory tracking', projects: ['owt'] })
     expect(afterChange.length).toBe(1)
     expect(afterChange[0].content).toContain('per-product')
 
@@ -82,18 +82,18 @@ describe('integration: full workflow', () => {
       project: 'thinkpro-api',
     })
 
-    const crossProject = searchMemories(db, { query: 'VAT', projects: ['owt', 'thinkpro-api'] })
+    const crossProject = await searchMemories(db, { query: 'VAT', projects: ['owt', 'thinkpro-api'] })
     expect(crossProject.length).toBe(1)
     expect(crossProject[0].project).toBe('thinkpro-api')
   })
 
-  it('access tracking boosts frequently recalled memories', () => {
+  it('access tracking boosts frequently recalled memories', async () => {
     createMemory(db, { type: 'decision', content: 'Important decision about databases', project: 'test' })
     createMemory(db, { type: 'decision', content: 'Important decision about caching', project: 'test' })
 
     // Search "databases" 5 times to boost its access count
     for (let i = 0; i < 5; i++) {
-      searchMemories(db, { query: 'databases', projects: ['test'] })
+      await searchMemories(db, { query: 'databases', projects: ['test'] })
     }
 
     // Now get top memories — "databases" should rank higher despite same weight/age

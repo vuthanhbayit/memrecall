@@ -72,7 +72,58 @@ export interface MemoryRow {
   access_count: number
   last_accessed_at: string | null
   created_at: string
+  embedding?: Buffer | null
   rowid?: number
 }
 
 export const MAX_CONTENT_LENGTH = 2000
+
+// --- v2: Knowledge Graph ---
+
+export interface Triple {
+  id: string
+  subject: string
+  predicate: string
+  object: string
+  project: string | null
+  validFrom: string
+  validUntil: string | null
+  createdAt: string
+}
+
+export interface TripleRow {
+  id: string
+  subject: string
+  predicate: string
+  object: string
+  project: string | null
+  valid_from: string
+  valid_until: string | null
+  created_at: string
+}
+
+export interface CreateTripleInput {
+  subject: string
+  predicate: string
+  object: string
+  project?: string
+  validFrom?: string
+}
+
+export interface QueryTripleInput {
+  entity: string
+  predicate?: string
+  project?: string
+  includeExpired?: boolean
+}
+
+// --- v2: Embedding ---
+
+export interface EmbeddingProvider {
+  name: string
+  dimensions: number
+  embed(text: string): Promise<Float32Array>
+  embedBatch(texts: string[]): Promise<Float32Array[]>
+}
+
+export const EMBEDDING_DIMENSIONS = 384

@@ -75,6 +75,27 @@ export function createMemory(db: Database.Database, input: CreateMemoryInput): M
   return getMemory(db, id)!
 }
 
+/**
+ * Create memory + embed content (non-blocking).
+ * Memory is saved regardless of embedding success.
+ */
+export async function createMemoryWithEmbedding(db: Database.Database, input: CreateMemoryInput): Promise<Memory> {
+  const memory = createMemory(db, input)
+
+  try {
+    const { embedText, embeddingToBuffer } = await import('./embed.js')
+    const embedding = await embedText(input.content)
+    if (embedding) {
+      db.prepare('UPDATE memories SET embedding = ? WHERE id = ?')
+        .run(embeddingToBuffer(embedding), memory.id)
+    }
+  } catch {
+    // Embedding failed — memory is still saved, just without embedding
+  }
+
+  return memory
+}
+
 export function getMemory(db: Database.Database, id: string): Memory | null {
   const row = db.prepare('SELECT * FROM memories WHERE id = ?').get(id) as MemoryRow | undefined
   return row ? rowToMemory(row) : null

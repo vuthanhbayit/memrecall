@@ -2,8 +2,10 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod'
 import { createDatabase } from './db.js'
-import { createMemory, updateMemory, expireMemory, getStats, errorResponse } from './memories.js'
-import { searchMemories, getTopMemories } from './search.js'
+import { createMemoryWithEmbedding, updateMemory, expireMemory, getStats, errorResponse } from './memories.js'
+import { enhancedRecall, getTopMemories } from './search.js'
+import { mine } from './mining/index.js'
+import { addTriple, queryTriples, invalidateTriple } from './kg.js'
 import type { MemoryType } from './types.js'
 
 export async function startServer() {
@@ -43,7 +45,7 @@ If a similar memory exists, use memrecall_update instead of creating a duplicate
     },
     async (params) => {
       try {
-        const memory = createMemory(db, {
+        const memory = await createMemoryWithEmbedding(db, {
           type: params.type as MemoryType,
           content: params.content,
           project: params.project !== undefined ? params.project : (defaultProject ?? undefined),
@@ -77,15 +79,34 @@ ALSO CALL WHEN:
     async (params) => {
       try {
         const projects = params.projects || (defaultProject ? [defaultProject] : undefined)
-        const results = params.query
-          ? searchMemories(db, { query: params.query, projects, type: params.type as MemoryType | undefined, limit: params.limit })
-          : getTopMemories(db, projects ?? (defaultProject ? [defaultProject] : null), params.limit ?? 15, params.type as MemoryType | undefined)
 
-        const formatted = results.map(m =>
+        if (!params.query) {
+          const results = getTopMemories(db, projects ?? (defaultProject ? [defaultProject] : null), params.limit ?? 15, params.type as MemoryType | undefined)
+          const formatted = results.map(m =>
+            `[${m.type}]${m.project ? ` (${m.project})` : ''} ${m.content} {id:${m.id}}`
+          ).join('\n')
+          return { content: [{ type: 'text' as const, text: formatted || 'No memories found.' }] }
+        }
+
+        // Enhanced recall: hybrid search + KG triples
+        const { memories, triples } = await enhancedRecall(db, {
+          query: params.query, projects, type: params.type as MemoryType | undefined, limit: params.limit,
+        })
+
+        let text = memories.map(m =>
           `[${m.type}]${m.project ? ` (${m.project})` : ''} ${m.content} {id:${m.id}}`
         ).join('\n')
 
-        return { content: [{ type: 'text' as const, text: formatted || 'No memories found.' }] }
+        if (triples && triples.length > 0) {
+          text += '\n\n--- Knowledge Graph ---\n'
+          text += triples.map(t => {
+            let line = `${t.subject} → ${t.predicate} → ${t.object} (since ${t.validFrom.slice(0, 10)})`
+            if (t.validUntil) line += ` (ended ${t.validUntil.slice(0, 10)})`
+            return line
+          }).join('\n')
+        }
+
+        return { content: [{ type: 'text' as const, text: text || 'No memories found.' }] }
       } catch (e: unknown) {
         return errorResponse(e)
       }
@@ -147,6 +168,139 @@ CALL WHEN:
       try {
         const stats = getStats(db, params.project)
         return { content: [{ type: 'text' as const, text: JSON.stringify(stats, null, 2) }] }
+      } catch (e: unknown) {
+        return errorResponse(e)
+      }
+    }
+  )
+
+  // Tool: memrecall_kg_add
+  server.tool(
+    'memrecall_kg_add',
+    `Save a structured fact as a knowledge graph triple (subject → predicate → object).
+
+CALL WHEN:
+- Learning a concrete relationship ("X uses Y", "A works on B", "C depends on D")
+- Technology choices, team assignments, project dependencies
+- Facts that can be expressed as (subject, predicate, object)
+
+DO NOT CALL WHEN:
+- Opinions, preferences, rules → use memrecall_remember instead
+- Vague context → use memrecall_remember instead`,
+    {
+      subject: z.string().describe('The entity (e.g., "OWT", "Bay")'),
+      predicate: z.string().describe('The relationship (e.g., "uses", "works_on", "depends_on")'),
+      object: z.string().describe('The related entity (e.g., "Prisma 7", "Nuxt 4")'),
+      project: z.string().optional().describe('Project scope. Omit for global facts.'),
+    },
+    async (params) => {
+      try {
+        const triple = addTriple(db, {
+          subject: params.subject,
+          predicate: params.predicate,
+          object: params.object,
+          project: params.project || defaultProject || undefined,
+        })
+        return { content: [{ type: 'text' as const, text: JSON.stringify({ added: true, id: triple.id, subject: triple.subject, predicate: triple.predicate, object: triple.object }) }] }
+      } catch (e: unknown) {
+        return errorResponse(e)
+      }
+    }
+  )
+
+  // Tool: memrecall_kg_query
+  server.tool(
+    'memrecall_kg_query',
+    `Query knowledge graph for facts about an entity.
+
+CALL WHEN:
+- Need to know relationships of a person, project, or technology
+- "What does X use?", "Who works on Y?", "What depends on Z?"`,
+    {
+      entity: z.string().describe('Subject or object to query'),
+      predicate: z.string().optional().describe('Filter by relationship type'),
+      project: z.string().optional().describe('Filter by project'),
+      includeExpired: z.boolean().optional().default(false).describe('Include expired facts'),
+    },
+    async (params) => {
+      try {
+        const triples = queryTriples(db, {
+          entity: params.entity,
+          predicate: params.predicate,
+          project: params.project,
+          includeExpired: params.includeExpired,
+        })
+
+        if (triples.length === 0) {
+          return { content: [{ type: 'text' as const, text: 'No facts found.' }] }
+        }
+
+        const formatted = triples.map(t => {
+          const since = t.validFrom.slice(0, 10)
+          let line = `${t.subject} → ${t.predicate} → ${t.object} (since ${since})`
+          if (t.validUntil) {
+            line += ` (ended ${t.validUntil.slice(0, 10)})`
+          }
+          return line
+        }).join('\n')
+
+        return { content: [{ type: 'text' as const, text: formatted }] }
+      } catch (e: unknown) {
+        return errorResponse(e)
+      }
+    }
+  )
+
+  // Tool: memrecall_kg_invalidate
+  server.tool(
+    'memrecall_kg_invalidate',
+    `Mark a knowledge graph triple as no longer valid. Sets valid_until timestamp.
+
+CALL WHEN:
+- A relationship has ended ("X no longer uses Y", "A left project B")`,
+    {
+      subject: z.string().describe('The entity'),
+      predicate: z.string().describe('The relationship'),
+      object: z.string().describe('The related entity'),
+    },
+    async (params) => {
+      try {
+        const invalidated = invalidateTriple(db, {
+          subject: params.subject,
+          predicate: params.predicate,
+          object: params.object,
+        })
+        return { content: [{ type: 'text' as const, text: JSON.stringify({ invalidated }) }] }
+      } catch (e: unknown) {
+        return errorResponse(e)
+      }
+    }
+  )
+
+  // Tool: memrecall_mine
+  server.tool(
+    'memrecall_mine',
+    `Mine conversation history to extract memories retroactively.
+
+CALL WHEN:
+- User asks to import or mine conversation history
+- User wants to extract knowledge from past conversations
+
+Usually run via CLI (memrecall mine), but can be triggered here too.`,
+    {
+      path: z.string().describe('Path to conversations directory or file (e.g., ~/.claude)'),
+      project: z.string().optional().describe('Tag mined memories with this project'),
+      extract: z.boolean().optional().default(false).describe('Smart extraction (decisions, feedback, bugs) instead of raw summaries'),
+      dryRun: z.boolean().optional().default(false).describe('Preview without saving'),
+    },
+    async (params) => {
+      try {
+        const result = await mine(db, params.path, {
+          project: params.project || defaultProject || undefined,
+          extract: params.extract,
+          dryRun: params.dryRun,
+        })
+        return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] }
       } catch (e: unknown) {
         return errorResponse(e)
       }

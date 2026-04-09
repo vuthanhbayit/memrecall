@@ -74,6 +74,32 @@ function migrate(db: Database.Database) {
     `)
     db.pragma('user_version = 1')
   }
+
+  if (version < 2) {
+    log('Running migration v1 → v2')
+    db.exec(`
+      -- Semantic search: embedding vector stored as raw Float32Array BLOB
+      ALTER TABLE memories ADD COLUMN embedding BLOB;
+      CREATE INDEX idx_embedding ON memories(embedding) WHERE embedding IS NOT NULL;
+
+      -- Knowledge graph: temporal triples (subject → predicate → object)
+      CREATE TABLE triples (
+        id          TEXT PRIMARY KEY,
+        subject     TEXT NOT NULL,
+        predicate   TEXT NOT NULL,
+        object      TEXT NOT NULL,
+        project     TEXT,
+        valid_from  TEXT NOT NULL,
+        valid_until TEXT,
+        created_at  TEXT NOT NULL
+      );
+
+      CREATE INDEX idx_triples_subject ON triples(subject) WHERE valid_until IS NULL;
+      CREATE INDEX idx_triples_object ON triples(object) WHERE valid_until IS NULL;
+      CREATE INDEX idx_triples_project ON triples(project) WHERE valid_until IS NULL;
+    `)
+    db.pragma('user_version = 2')
+  }
 }
 
 export function closeDatabase(db: Database.Database) {
