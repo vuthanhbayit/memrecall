@@ -128,7 +128,7 @@ CALL WHEN:
     },
     async (params) => {
       try {
-        expireMemory(db, params.id, params.reason)
+        expireMemory(db, params.id)
         return { content: [{ type: 'text' as const, text: JSON.stringify({ forgotten: true, id: params.id }) }] }
       } catch (e: unknown) {
         return errorResponse(e)

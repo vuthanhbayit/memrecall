@@ -100,7 +100,7 @@ export function updateMemory(db: Database.Database, input: UpdateMemoryInput): M
   return getMemory(db, input.id)!
 }
 
-export function expireMemory(db: Database.Database, id: string, _reason?: string): void {
+export function expireMemory(db: Database.Database, id: string): void {
   const old = db.prepare('SELECT rowid, * FROM memories WHERE id = ?').get(id) as (MemoryRow & { rowid: number }) | undefined
   if (!old) throw new Error(`Memory not found: ${id}`)
 
