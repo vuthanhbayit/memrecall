@@ -3,8 +3,9 @@ import { nanoid } from 'nanoid'
 import type { Memory, CreateMemoryInput, UpdateMemoryInput, MemoryStats, MemoryType, MemoryRow } from './types.js'
 import { TYPE_WEIGHTS, TYPE_HALF_LIFE_DAYS, MAX_CONTENT_LENGTH, MEMORY_TYPES } from './types.js'
 
-function normalizeProject(name: string): string {
-  return name.toLowerCase().trim().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
+function normalizeProject(name: string): string | null {
+  const normalized = name.toLowerCase().trim().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
+  return normalized || null
 }
 
 export function validateContent(content: string): void {
@@ -60,15 +61,15 @@ export function createMemory(db: Database.Database, input: CreateMemoryInput): M
   const tags = input.tags && input.tags.length > 0 ? input.tags : null
 
   db.transaction(() => {
-    db.prepare(`
+    const result = db.prepare(`
       INSERT INTO memories (id, type, content, weight, project, tags, valid_from, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(id, input.type, input.content, weight, project, tags ? JSON.stringify(tags) : null, now, now)
 
     db.prepare(`
       INSERT INTO memories_fts (rowid, content, tags)
-      VALUES (last_insert_rowid(), ?, ?)
-    `).run(input.content, tagsToFts(tags))
+      VALUES (?, ?, ?)
+    `).run(result.lastInsertRowid, input.content, tagsToFts(tags))
   })()
 
   return getMemory(db, id)!

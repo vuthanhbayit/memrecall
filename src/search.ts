@@ -28,7 +28,7 @@ export function searchMemories(db: Database.Database, input: SearchInput): Memor
   const { query, projects, type, limit = 10 } = input
 
   if (!query || query.trim().length === 0) {
-    return getTopMemories(db, projects ?? null, limit)
+    return getTopMemories(db, projects ?? null, limit, type)
   }
 
   const sanitized = sanitizeFtsQuery(query)
@@ -81,7 +81,7 @@ export function searchMemories(db: Database.Database, input: SearchInput): Memor
   return results
 }
 
-export function getTopMemories(db: Database.Database, projects: string[] | null, limit: number): Memory[] {
+export function getTopMemories(db: Database.Database, projects: string[] | null, limit: number, type?: MemoryType): Memory[] {
   const decay = halfLifeDecaySQL('')
 
   let sql = `
@@ -99,6 +99,11 @@ export function getTopMemories(db: Database.Database, projects: string[] | null,
     const placeholders = projects.map(() => '?').join(', ')
     sql += ` AND (project IN (${placeholders}) OR project IS NULL)`
     params.push(...projects)
+  }
+
+  if (type) {
+    sql += ' AND type = ?'
+    params.push(type)
   }
 
   sql += ' ORDER BY score DESC LIMIT ?'

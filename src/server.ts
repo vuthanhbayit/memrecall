@@ -46,7 +46,7 @@ If a similar memory exists, use memrecall_update instead of creating a duplicate
         const memory = createMemory(db, {
           type: params.type as MemoryType,
           content: params.content,
-          project: params.project || (defaultProject ?? undefined),
+          project: params.project !== undefined ? params.project : (defaultProject ?? undefined),
           tags: params.tags,
         })
         return { content: [{ type: 'text' as const, text: JSON.stringify({ saved: true, id: memory.id, type: memory.type, project: memory.project }) }] }
@@ -79,7 +79,7 @@ ALSO CALL WHEN:
         const projects = params.projects || (defaultProject ? [defaultProject] : undefined)
         const results = params.query
           ? searchMemories(db, { query: params.query, projects, type: params.type as MemoryType | undefined, limit: params.limit })
-          : getTopMemories(db, projects ?? (defaultProject ? [defaultProject] : null), params.limit ?? 15)
+          : getTopMemories(db, projects ?? (defaultProject ? [defaultProject] : null), params.limit ?? 15, params.type as MemoryType | undefined)
 
         const formatted = results.map(m =>
           `[${m.type}]${m.project ? ` (${m.project})` : ''} ${m.content} {id:${m.id}}`
@@ -155,8 +155,8 @@ CALL WHEN:
 
   // Resource: memrecall://context (optional, for clients that support @-references)
   server.resource(
+    'context',
     'memrecall://context',
-    'Top memories for the current project — decisions, feedback, and critical context',
     async () => {
       const memories = getTopMemories(db, defaultProject ? [defaultProject] : null, 15)
       const formatted = memories.map(m =>
