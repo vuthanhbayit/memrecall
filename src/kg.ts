@@ -124,7 +124,7 @@ export function searchTriplesByQuery(
 
   if (projects && projects.length > 0) {
     const placeholders = projects.map(() => '?').join(', ')
-    conditions.push(`project IN (${placeholders})`)
+    conditions.push(`(project IN (${placeholders}) OR project IS NULL)`)
     params.push(...projects)
   }
 

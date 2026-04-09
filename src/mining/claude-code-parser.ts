@@ -29,18 +29,44 @@ async function findJsonlFiles(dir: string, depth: number = 0): Promise<string[]>
 }
 
 /**
- * Extract text content from a JSONL message line.
- * Handles both `text` field and `content` array format.
+ * Extract text content from a JSONL line.
+ *
+ * Claude Code format:
+ *   { type: "user"|"assistant", message: { role, content: string | [{type:"text",text:"..."},...] } }
+ *
+ * Also handles legacy/test format:
+ *   { type: "human"|"assistant", text: "..." }
+ *   { type: "human"|"assistant", content: [{type:"text",text:"..."}] }
  */
 function extractText(parsed: Record<string, unknown>): string | null {
+  // Current Claude Code format: nested message.content
+  const message = parsed.message as Record<string, unknown> | undefined
+  if (message && typeof message === 'object') {
+    const content = message.content
+    if (typeof content === 'string' && content.length > 0) {
+      return content
+    }
+    if (Array.isArray(content)) {
+      const texts: string[] = []
+      for (const block of content) {
+        if (block && typeof block === 'object' && 'type' in block && block.type === 'text' && typeof (block as any).text === 'string') {
+          texts.push((block as any).text)
+        }
+      }
+      if (texts.length > 0) return texts.join('\n')
+    }
+    return null
+  }
+
+  // Legacy/test format: top-level text or content
   if (typeof parsed.text === 'string' && parsed.text.length > 0) {
     return parsed.text
   }
   if (Array.isArray(parsed.content)) {
     const texts: string[] = []
     for (const block of parsed.content) {
-      if (block && typeof block === 'object' && 'type' in block && block.type === 'text' && typeof block.text === 'string') {
-        texts.push(block.text)
+      if (block && typeof block === 'object' && 'type' in block && block.type === 'text' && typeof (block as any).text === 'string') {
+        texts.push((block as any).text)
       }
     }
     if (texts.length > 0) return texts.join('\n')
@@ -84,12 +110,16 @@ async function parseJsonlFile(filePath: string): Promise<Conversation> {
     }
 
     const type = parsed.type
-    if (type !== 'human' && type !== 'assistant') continue
+    // Accept both current format (user/assistant) and legacy (human/assistant)
+    if (type !== 'user' && type !== 'human' && type !== 'assistant') continue
+
+    // Skip tool result messages (user type with toolUseResult)
+    if (parsed.toolUseResult != null) continue
 
     const text = extractText(parsed)
     if (!text) continue
 
-    const role: 'user' | 'assistant' = type === 'human' ? 'user' : 'assistant'
+    const role: 'user' | 'assistant' = (type === 'human' || type === 'user') ? 'user' : 'assistant'
     messages.push({ role, content: text })
   }
 

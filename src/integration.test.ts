@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { createDatabase, closeDatabase } from './db.js'
-import { createMemory, expireMemory } from './memories.js'
-import { searchMemories, getTopMemories } from './search.js'
+import { createMemory, createMemoryWithEmbedding, expireMemory } from './memories.js'
+import { searchMemories, getTopMemories, enhancedRecall } from './search.js'
+import { addTriple } from './kg.js'
 import Database from 'better-sqlite3'
 import fs from 'fs'
 import path from 'path'
@@ -85,6 +86,52 @@ describe('integration: full workflow', () => {
     const crossProject = await searchMemories(db, { query: 'VAT', projects: ['owt', 'thinkpro-api'] })
     expect(crossProject.length).toBe(1)
     expect(crossProject[0].project).toBe('thinkpro-api')
+  })
+
+  it('createMemoryWithEmbedding saves memory even without embedding provider', async () => {
+    const mem = await createMemoryWithEmbedding(db, {
+      type: 'decision',
+      content: 'Use SQLite for storage because it is simple and fast.',
+      project: 'test',
+    })
+
+    expect(mem.id).toBeDefined()
+    expect(mem.content).toContain('SQLite')
+
+    // Memory saved, but no embedding (no provider in test env)
+    const row = db.prepare('SELECT embedding FROM memories WHERE id = ?').get(mem.id) as { embedding: Buffer | null }
+    expect(row.embedding).toBeNull()
+  })
+
+  it('enhancedRecall returns memories + matching KG triples', async () => {
+    createMemory(db, {
+      type: 'decision',
+      content: 'OWT uses PostgreSQL for the main database.',
+      project: 'owt',
+    })
+    addTriple(db, { subject: 'OWT', predicate: 'uses', object: 'PostgreSQL', project: 'owt' })
+    addTriple(db, { subject: 'OWT', predicate: 'uses', object: 'Nuxt 4', project: 'owt' })
+
+    const result = await enhancedRecall(db, { query: 'OWT', projects: ['owt'] })
+
+    expect(result.memories.length).toBeGreaterThan(0)
+    expect(result.triples).not.toBeNull()
+    expect(result.triples!.length).toBe(2)
+    expect(result.triples!.map(t => t.object)).toContain('PostgreSQL')
+    expect(result.triples!.map(t => t.object)).toContain('Nuxt 4')
+  })
+
+  it('enhancedRecall returns null triples when no KG match', async () => {
+    createMemory(db, {
+      type: 'context',
+      content: 'Random context about something unrelated.',
+      project: 'test',
+    })
+
+    const result = await enhancedRecall(db, { query: 'random', projects: ['test'] })
+
+    expect(result.memories.length).toBeGreaterThan(0)
+    expect(result.triples).toBeNull()
   })
 
   it('access tracking boosts frequently recalled memories', async () => {

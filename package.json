@@ -1,6 +1,6 @@
 {
   "name": "memrecall",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "MCP server providing long-term memory for AI assistants",
   "type": "module",
   "bin": {
