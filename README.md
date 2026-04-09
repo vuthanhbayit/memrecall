@@ -117,14 +117,30 @@ memrecall embed --status
 # Provider: ollama  ← or "transformers" or "none"
 ```
 
-### Step 3: Backfill embeddings
+### Step 3: Import your conversation history (optional)
 
-If you already have memories saved, generate embeddings for them:
+Already have hundreds of Claude Code conversations? Mine them into memories:
+
+```bash
+# Preview what would be imported
+memrecall mine ~/.claude --project myproject --extract --dry-run
+
+# Import for real
+memrecall mine ~/.claude --project myproject --extract
+```
+
+This scans your `~/.claude/projects/` for conversation files, extracts decisions/feedback/bugs, and saves them as searchable memories. Duplicates are automatically skipped.
+
+### Step 4: Backfill embeddings
+
+After mining (or if you already have memories saved), generate embeddings for semantic search:
 
 ```bash
 memrecall embed            # embed all memories without embeddings
 memrecall embed --status   # check coverage: "42/42 (100%)"
 ```
+
+New memories saved via MCP tools are **automatically embedded** — this step is only needed for previously saved or mined memories.
 
 > **No embedding provider?** memrecall works fine with FTS5 keyword search only. You can add embeddings later — run `memrecall embed` anytime and existing memories get upgraded.
 
