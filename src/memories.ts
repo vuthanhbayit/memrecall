@@ -144,12 +144,12 @@ export function getStats(db: Database.Database, project?: string): MemoryStats {
   return { total, active, expired: total - active, byType: byType as Record<MemoryType, number>, byProject }
 }
 
-export function exportMemories(db: Database.Database, project?: string): Memory[] {
+export function exportMemories(db: Database.Database, project?: string): MemoryRow[] {
   let sql = 'SELECT * FROM memories'
   const params: any[] = []
   if (project) { sql += ' WHERE project = ?'; params.push(project) }
   sql += ' ORDER BY created_at DESC'
-  return (db.prepare(sql).all(...params) as MemoryRow[]).map(rowToMemory)
+  return db.prepare(sql).all(...params) as MemoryRow[]
 }
 
 function validateImportRow(row: any): string | null {
@@ -158,6 +158,8 @@ function validateImportRow(row: any): string | null {
   if (!row.type || !MEMORY_TYPES.includes(row.type as MemoryType)) return `invalid type: ${row.type}`
   if (row.content.trim().length === 0) return 'empty content'
   if (row.content.length > MAX_CONTENT_LENGTH) return `content exceeds ${MAX_CONTENT_LENGTH} chars`
+  if (!row.valid_from || typeof row.valid_from !== 'string') return 'missing valid_from'
+  if (!row.created_at || typeof row.created_at !== 'string') return 'missing created_at'
   return null
 }
 

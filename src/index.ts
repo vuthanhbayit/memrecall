@@ -188,8 +188,8 @@ program
     try {
       await db.backup(backupPath)
       console.log(`Backup created: ${backupPath}`)
-    } catch {
-      console.error('Backup failed')
+    } catch (e) {
+      console.error('Backup failed:', e instanceof Error ? e.message : e)
       process.exit(1)
     } finally {
       closeDatabase(db)
