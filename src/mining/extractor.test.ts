@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { extractMemories, wordOverlap } from './extractor.js'
+import { extractMemories, wordOverlap, removeDiacritics } from './extractor.js'
 import { mine } from './index.js'
 import { createDatabase, closeDatabase } from '../db.js'
 import { createMemory } from '../memories.js'
@@ -114,7 +114,7 @@ describe('extractor', () => {
       expect(results).toHaveLength(0)
     })
 
-    it('detects Vietnamese patterns', () => {
+    it('detects Vietnamese patterns with diacritics', () => {
       const convDecision = makeConversation([
         { role: 'user', content: 'Em quyết định dùng Drizzle ORM thay vì Prisma cho project mới.' },
       ])
@@ -131,6 +131,29 @@ describe('extractor', () => {
 
       const convBug = makeConversation([
         { role: 'assistant', content: 'Nguyên nhân là do thiếu await trước async function nên Promise chưa resolve.' },
+      ])
+      const bugs = extractMemories(convBug, true)
+      expect(bugs.length).toBeGreaterThanOrEqual(1)
+      expect(bugs.some(r => r.type === 'bug')).toBe(true)
+    })
+
+    it('detects Vietnamese patterns WITHOUT diacritics', () => {
+      const convDecision = makeConversation([
+        { role: 'user', content: 'chot dung Redis cho caching, khong can Memcached nua' },
+      ])
+      const decisions = extractMemories(convDecision, true)
+      expect(decisions.length).toBeGreaterThanOrEqual(1)
+      expect(decisions.some(r => r.type === 'decision')).toBe(true)
+
+      const convFeedback = makeConversation([
+        { role: 'user', content: 'khong bao gio dung any trong TypeScript, phai dung proper types hoac unknown' },
+      ])
+      const feedbacks = extractMemories(convFeedback, true)
+      expect(feedbacks.length).toBeGreaterThanOrEqual(1)
+      expect(feedbacks.some(r => r.type === 'feedback')).toBe(true)
+
+      const convBug = makeConversation([
+        { role: 'assistant', content: 'loi vi thieu index tren bang orders, query chay full table scan' },
       ])
       const bugs = extractMemories(convBug, true)
       expect(bugs.length).toBeGreaterThanOrEqual(1)
@@ -184,6 +207,28 @@ describe('wordOverlap', () => {
   it('handles whitespace-only strings', () => {
     expect(wordOverlap('   ', '   ')).toBe(1.0)
     expect(wordOverlap('hello', '   ')).toBe(0.0)
+  })
+})
+
+describe('removeDiacritics', () => {
+  it('strips Vietnamese diacritics', () => {
+    expect(removeDiacritics('chốt quyết định')).toBe('chot quyet dinh')
+    expect(removeDiacritics('đừng không bao giờ')).toBe('dung khong bao gio')
+    expect(removeDiacritics('lỗi vì nguyên nhân')).toBe('loi vi nguyen nhan')
+  })
+
+  it('preserves non-Vietnamese text', () => {
+    expect(removeDiacritics('hello world')).toBe('hello world')
+    expect(removeDiacritics('PostgreSQL 17')).toBe('PostgreSQL 17')
+  })
+
+  it('handles mixed Vietnamese and English', () => {
+    expect(removeDiacritics('chốt dùng PostgreSQL cho database')).toBe('chot dung PostgreSQL cho database')
+  })
+
+  it('handles đ/Đ correctly', () => {
+    expect(removeDiacritics('Đà Nẵng')).toBe('Da Nang')
+    expect(removeDiacritics('đổi sang Redis')).toBe('doi sang Redis')
   })
 })
 

@@ -1,29 +1,53 @@
 import type { Conversation, MinedMemory } from './types.js'
 
-// Global flag for matchAll — finds ALL occurrences per message, not just the first
-const DECISION_PATTERNS = [
-  /(?:decided|chose|going with|let's use|we'll use|switching to)\s+(.{10,200})/gi,
-  /(?:chốt|quyết định|dùng|chuyển sang)\s+(.{10,200})/gi,
+/**
+ * Remove Vietnamese diacritics from text.
+ * "chốt quyết định" → "chot quyet dinh"
+ * Allows matching both accented and unaccented Vietnamese input.
+ */
+export function removeDiacritics(text: string): string {
+  return text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D')
+}
+
+// --- Pattern definitions ---
+// Each group has English patterns (run on original text)
+// and Vietnamese patterns (run on diacritics-stripped text so both
+// "chốt dùng X" and "chot dung X" match).
+
+const DECISION_PATTERNS_EN = [
+  /(?:decided|chose|going with|let's use|we'll use|switching to|will use|should use|picked|selected)\s+(.{10,200})/gi,
 ]
 
-const FEEDBACK_PATTERNS = [
-  /(?:don't|never|stop|always prefer|always use)\s+(.{10,200})/gi,
-  /(?:đừng|không bao giờ|luôn luôn|luôn dùng)\s+(.{10,200})/gi,
+const DECISION_PATTERNS_VI = [
+  /(?:chot|quyet dinh|dung|chuyen sang|chon|se dung|nen dung|lay|su dung)\s+(.{10,200})/gi,
 ]
 
-const BUG_PATTERNS = [
-  /(?:root cause|failed because|the issue was|bug was|lỗi vì|nguyên nhân)\s+(.{10,200})/gi,
+const FEEDBACK_PATTERNS_EN = [
+  /(?:don't|never|stop|always prefer|always use|do not|avoid|must not|should not|shouldn't)\s+(.{10,200})/gi,
+]
+
+const FEEDBACK_PATTERNS_VI = [
+  /(?:dung|khong bao gio|luon luon|luon dung|khong duoc|tranh|phai luon|nen luon|cam|khong nen)\s+(.{10,200})/gi,
+]
+
+const BUG_PATTERNS_EN = [
+  /(?:root cause|failed because|the issue was|bug was|caused by|broke because|error was|problem was|crash.{0,5} because)\s+(.{10,200})/gi,
+]
+
+const BUG_PATTERNS_VI = [
+  /(?:loi vi|nguyen nhan|bi loi|gay ra|van de la|loi do|hu vi|hong vi|sap vi)\s+(.{10,200})/gi,
 ]
 
 interface PatternGroup {
   type: MinedMemory['type']
-  patterns: RegExp[]
+  enPatterns: RegExp[]
+  viPatterns: RegExp[]
 }
 
 const PATTERN_GROUPS: PatternGroup[] = [
-  { type: 'decision', patterns: DECISION_PATTERNS },
-  { type: 'feedback', patterns: FEEDBACK_PATTERNS },
-  { type: 'bug', patterns: BUG_PATTERNS },
+  { type: 'decision', enPatterns: DECISION_PATTERNS_EN, viPatterns: DECISION_PATTERNS_VI },
+  { type: 'feedback', enPatterns: FEEDBACK_PATTERNS_EN, viPatterns: FEEDBACK_PATTERNS_VI },
+  { type: 'bug', enPatterns: BUG_PATTERNS_EN, viPatterns: BUG_PATTERNS_VI },
 ]
 
 /**
@@ -62,27 +86,52 @@ function extractRaw(conversation: Conversation): MinedMemory[] {
 }
 
 /**
+ * Collect matches from a set of regex patterns against text.
+ * Returns the matched substrings from the ORIGINAL text (not normalized).
+ */
+function collectMatches(text: string, patterns: RegExp[], offset?: { normalized: string; original: string }): string[] {
+  const results: string[] = []
+  const matchText = offset ? offset.normalized : text
+  for (const pattern of patterns) {
+    for (const match of matchText.matchAll(pattern)) {
+      if (offset) {
+        // For Vietnamese patterns matched on normalized text,
+        // extract the same position from original text to preserve diacritics
+        const start = match.index!
+        const end = start + match[0].length
+        const original = offset.original.slice(start, end).trim()
+        if (original.length > 0) results.push(original)
+      } else {
+        const content = match[0].trim()
+        if (content.length > 0) results.push(content)
+      }
+    }
+  }
+  return results
+}
+
+/**
  * Smart extract mode: scan all messages for keyword patterns.
- * Returns one MinedMemory per pattern match.
+ * English patterns match on original text.
+ * Vietnamese patterns match on diacritics-stripped text, then extract from original.
  */
 function extractSmart(conversation: Conversation): MinedMemory[] {
   const memories: MinedMemory[] = []
   const source = conversation.metadata?.source || conversation.id
 
   for (const message of conversation.messages) {
+    const original = message.content
+    const normalized = removeDiacritics(original.toLowerCase())
+
     for (const group of PATTERN_GROUPS) {
-      for (const pattern of group.patterns) {
-        for (const match of message.content.matchAll(pattern)) {
-          const content = match[0].trim()
-          if (content.length > 0) {
-            memories.push({
-              type: group.type,
-              content,
-              tags: ['mined', 'extracted'],
-              source,
-            })
-          }
-        }
+      // English patterns on original text
+      for (const content of collectMatches(original, group.enPatterns)) {
+        memories.push({ type: group.type, content, tags: ['mined', 'extracted'], source })
+      }
+
+      // Vietnamese patterns on normalized text, extract from original
+      for (const content of collectMatches('', group.viPatterns, { normalized, original })) {
+        memories.push({ type: group.type, content, tags: ['mined', 'extracted'], source })
       }
     }
   }
@@ -92,10 +141,6 @@ function extractSmart(conversation: Conversation): MinedMemory[] {
 
 /**
  * Extract memories from a conversation.
- *
- * @param conversation - The parsed conversation
- * @param extract - If true, use smart pattern extraction. If false (default), use raw summary mode.
- * @returns Array of mined memories
  */
 export function extractMemories(conversation: Conversation, extract: boolean): MinedMemory[] {
   if (extract) {
